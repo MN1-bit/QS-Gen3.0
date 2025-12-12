@@ -1,7 +1,10 @@
 import sys
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel, 
+    QSystemTrayIcon, QMenu
+)
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon, QColor
+from PySide6.QtGui import QIcon, QColor, QAction
 from qfluentwidgets import (
     FluentWindow, NavigationItemPosition, FluentIcon,
     SubtitleLabel, setFont, Theme, setTheme
@@ -232,6 +235,7 @@ class TradingMainWindow(FluentWindow):
         
         self.initWindow()
         self.initNavigation()
+        self.initSystemTray()
         
     def initWindow(self):
         self.resize(1300, 800)
@@ -327,3 +331,58 @@ class TradingMainWindow(FluentWindow):
     def bridge(self) -> IBKRBridge:
         """Get the IBKR bridge instance."""
         return self._bridge
+        
+    def initSystemTray(self):
+        """Initialize system tray icon and menu."""
+        self._tray_icon = QSystemTrayIcon(self)
+        # Use application style icon
+        self._tray_icon.setIcon(FluentIcon.MARKET.icon())
+        self._tray_icon.setToolTip("QS-Gen3.0 - Trading System")
+        
+        # Create tray menu
+        tray_menu = QMenu()
+        
+        # Show action
+        show_action = QAction("Show", self)
+        show_action.triggered.connect(self._show_from_tray)
+        tray_menu.addAction(show_action)
+        
+        # Connect action
+        connect_action = QAction("Connect to TWS", self)
+        connect_action.triggered.connect(self._bridge.connect_to_tws)
+        tray_menu.addAction(connect_action)
+        
+        tray_menu.addSeparator()
+        
+        # Exit action
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(QApplication.quit)
+        tray_menu.addAction(exit_action)
+        
+        self._tray_icon.setContextMenu(tray_menu)
+        self._tray_icon.activated.connect(self._on_tray_activated)
+        self._tray_icon.show()
+        
+    def _show_from_tray(self):
+        """Show window from tray."""
+        self.showNormal()
+        self.activateWindow()
+        
+    def _on_tray_activated(self, reason):
+        """Handle tray icon activation."""
+        if reason == QSystemTrayIcon.DoubleClick:
+            self._show_from_tray()
+            
+    def closeEvent(self, event):
+        """Minimize to tray instead of closing."""
+        if self._tray_icon.isVisible():
+            self.hide()
+            self._tray_icon.showMessage(
+                "QS-Gen3.0",
+                "Application minimized to tray. Double-click to restore.",
+                QSystemTrayIcon.Information,
+                2000
+            )
+            event.ignore()
+        else:
+            event.accept()

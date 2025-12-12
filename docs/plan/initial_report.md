@@ -140,10 +140,20 @@ QS-Gen3.0은 개인 투자자(Retail Quant)를 위한 차세대 자동화 거래
 - [ ] Strategy Start/Stop Controls
 - [ ] System Tray Notifications
 
-### Phase 4: Analytics & Polish (Week 11-12)
-- [ ] Backtest Result Viewer
-- [ ] Log Viewer with Filtering
+### Phase 4: Analytics & Polish (Week 11-12) ✅
+- [x] Backtest Result Viewer
+- [x] Log Viewer with Filtering
 - [ ] Settings Persistence (YAML)
+
+### Phase 5: System Notifications (Week 13)
+- [ ] System Tray Integration (minimize to tray)
+- [ ] Desktop Notifications (order fill, alerts)
+- [ ] Sound Alerts (optional)
+
+### Phase 6: Nautilus Trader Integration (Week 14-16)
+- [ ] Replace ibapi with Nautilus Trader core
+- [ ] Strategy Engine Integration
+- [ ] Event Loop Bridge (asyncio + Qt)
 
 ---
 
