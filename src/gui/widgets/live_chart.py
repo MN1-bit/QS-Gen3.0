@@ -70,11 +70,17 @@ class LiveChartWidget(QWidget):
     Displays real-time price data from IBKR.
     """
     
+    # Signals
+    symbol_changed = Signal(str)  # Emitted when symbol changes
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("liveChartWidget")
+        self._current_symbol = "SPY"
+        self._last_price = 0.0
+        self._prices = []  # Store recent prices for line chart
+        self._bars = []    # Store historical bars for candlestick
         self._setup_ui()
-        self._setup_demo_data()
         
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -103,9 +109,20 @@ class LiveChartWidget(QWidget):
         self._symbol_combo.currentTextChanged.connect(self._on_symbol_changed)
         header.addWidget(self._symbol_combo)
         
-        self._price_label = QLabel("$0.00")
-        self._price_label.setStyleSheet("color: #26a69a; font-size: 18px; font-weight: bold;")
+        self._price_label = QLabel("--")
+        self._price_label.setStyleSheet("color: #888; font-size: 18px; font-weight: bold;")
         header.addWidget(self._price_label)
+        
+        # Live indicator
+        self._live_indicator = QLabel("● LIVE")
+        self._live_indicator.setStyleSheet("color: #26a69a; font-size: 11px;")
+        self._live_indicator.setVisible(False)
+        header.addWidget(self._live_indicator)
+        
+        # Status label
+        self._status_label = QLabel("Waiting for connection...")
+        self._status_label.setStyleSheet("color: #666; font-size: 11px;")
+        header.addWidget(self._status_label)
         
         header.addStretch()
         layout.addLayout(header)
@@ -118,45 +135,95 @@ class LiveChartWidget(QWidget):
         self._chart.setLabel('left', 'Price', color='#888')
         self._chart.setLabel('bottom', 'Time', color='#888')
         
-        # Add candlestick item
+        # Add candlestick item (for historical data)
         self._candles = CandlestickItem()
         self._chart.addItem(self._candles)
         
+        # Add real-time price line
+        self._price_line = self._chart.plot(
+            pen=pg.mkPen('#26a69a', width=2),
+            name='Price'
+        )
+        
         layout.addWidget(self._chart)
-        
-    def _setup_demo_data(self):
-        """Generate demo candlestick data."""
-        np.random.seed(42)
-        n = 50
-        data = []
-        price = 450.0
-        
-        for i in range(n):
-            o = price + np.random.uniform(-2, 2)
-            c = o + np.random.uniform(-3, 3)
-            h = max(o, c) + np.random.uniform(0, 2)
-            l = min(o, c) - np.random.uniform(0, 2)
-            price = c
-            data.append((i, o, h, l, c))
-            
-        self._candles.setData(data)
-        self._price_label.setText(f"${price:.2f}")
         
     @Slot(str)
     def _on_symbol_changed(self, symbol: str):
         """Handle symbol change."""
-        # Regenerate demo data for new symbol
-        self._setup_demo_data()
+        self._current_symbol = symbol
+        self._prices = []
+        self._bars = []
+        self._candles.setData([])
+        self._price_line.setData([], [])
+        self._live_indicator.setVisible(False)
+        self._price_label.setText("--")
+        self._status_label.setText("Loading...")
+        self.symbol_changed.emit(symbol)
+        
+    @Slot(float)
+    def update_price(self, price: float):
+        """Update chart with new price."""
+        self._last_price = price
+        self._live_indicator.setVisible(True)
+        self._status_label.setText("")
+        
+        # Update price label with color based on change
+        if self._prices and price > self._prices[-1]:
+            self._price_label.setStyleSheet("color: #26a69a; font-size: 18px; font-weight: bold;")
+        elif self._prices and price < self._prices[-1]:
+            self._price_label.setStyleSheet("color: #ef5350; font-size: 18px; font-weight: bold;")
+            
+        self._price_label.setText(f"${price:.2f}")
+        self._prices.append(price)
+        
+        # Keep only last 100 prices
+        if len(self._prices) > 100:
+            self._prices = self._prices[-100:]
+            
+        # Update the price line chart
+        if len(self._prices) > 1:
+            x_data = list(range(len(self._prices)))
+            self._price_line.setData(x_data, self._prices)
+            
+    @Slot(object)
+    def add_bar(self, bar):
+        """
+        Add a historical bar to the chart.
+        
+        Args:
+            bar: ibapi BarData object
+        """
+        # Convert bar to tuple format (index, open, high, low, close)
+        bar_index = len(self._bars)
+        self._bars.append((bar_index, bar.open, bar.high, bar.low, bar.close))
+        
+        # Update candlesticks
+        self._candles.setData(self._bars)
+        
+        # Update price label if this is the latest bar
+        if bar.close > 0:
+            self._price_label.setText(f"${bar.close:.2f}")
+            self._status_label.setText(f"{len(self._bars)} bars loaded")
         
     @Slot(list)
     def update_data(self, candles: List[tuple]):
-        """
-        Update chart with new candle data.
-        
-        Args:
-            candles: List of (time, open, high, low, close) tuples
-        """
+        """Update chart with new candle data."""
         self._candles.setData(candles)
         if candles:
             last_price = candles[-1][4]  # Close price
             self._price_label.setText(f"${last_price:.2f}")
+            
+    @Slot()
+    def clear_data(self):
+        """Clear all chart data."""
+        self._bars = []
+        self._prices = []
+        self._candles.setData([])
+        self._price_line.setData([], [])
+        self._price_label.setText("--")
+        self._status_label.setText("Waiting for connection...")
+            
+    @property
+    def current_symbol(self) -> str:
+        """Get current symbol."""
+        return self._current_symbol

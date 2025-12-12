@@ -146,6 +146,74 @@ class DashboardInterface(QWidget):
         self._connection_widget.reconnect_requested.connect(
             self._bridge.reconnect
         )
+        
+        # Connect price signal to chart
+        self._bridge.price_received.connect(self._on_price_received)
+        
+        # Auto-subscribe to market data when connected
+        self._bridge.connected.connect(self._subscribe_default_symbol)
+        
+        # Handle chart symbol change
+        self._chart_widget.symbol_changed.connect(self._on_chart_symbol_changed)
+        
+        # Connect historical data signal
+        self._bridge.historical_bar_received.connect(self._on_historical_bar)
+        
+        # Connect position signals
+        self._bridge.position_received.connect(self._position_panel.add_position)
+        self._bridge.positions_complete.connect(self._on_positions_complete)
+        
+        # Connect order signals
+        self._bridge.order_received.connect(self._order_table.add_order)
+        self._bridge.order_status_received.connect(self._order_table.update_order_status)
+        
+        # Auto-request positions and orders on connect
+        self._bridge.connected.connect(self._request_tws_data)
+        
+        # Connect cancel all button
+        self._order_table.cancel_all_requested.connect(self._bridge.cancel_all_orders)
+        
+    def _on_price_received(self, req_id: int, price: float):
+        """Handle price update from bridge."""
+        self._chart_widget.update_price(price)
+        
+    def _subscribe_default_symbol(self):
+        """Subscribe to default symbol on connect."""
+        symbol = self._chart_widget.current_symbol
+        self._current_req_id = 1001
+        self._bridge.subscribe_market_data(symbol, self._current_req_id)
+        # Also request historical data
+        self._request_chart_history(symbol)
+        
+    def _on_chart_symbol_changed(self, symbol: str):
+        """Handle symbol change from chart."""
+        if hasattr(self, '_current_req_id'):
+            self._bridge.unsubscribe_market_data(self._current_req_id)
+        self._current_req_id = 1001
+        self._bridge.subscribe_market_data(symbol, self._current_req_id)
+        # Also request historical data for new symbol
+        self._request_chart_history(symbol)
+        
+    def _request_chart_history(self, symbol: str):
+        """Request historical data for chart."""
+        self._chart_widget.clear_data()
+        self._bridge.request_historical_data(symbol, req_id=2001)
+        
+    def _on_historical_bar(self, req_id: int, bar):
+        """Handle historical bar data."""
+        if req_id == 2001:  # Chart history request
+            self._chart_widget.add_bar(bar)
+        
+    def _request_tws_data(self):
+        """Request positions and orders from TWS."""
+        self._position_panel.clear_positions()
+        self._order_table.clear_orders()
+        self._bridge.request_positions()
+        self._bridge.request_open_orders()
+        
+    def _on_positions_complete(self):
+        """Called when all positions have been received."""
+        print("[Dashboard] Positions sync complete")
 
 
 class TradingMainWindow(FluentWindow):

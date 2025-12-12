@@ -59,6 +59,79 @@ class IBKRClient(EWrapper, EClient):
         self._connected = False
         # Use thread-safe signal emission
         self._bridge._emit_disconnected()
+        
+    def tickPrice(self, reqId, tickType, price, attrib):
+        """Called when price tick is received."""
+        # Real-time: 1=bid, 2=ask, 4=last
+        # Delayed: 66=bid, 67=ask, 68=last
+        if tickType in [4, 68]:  # Last price (real-time or delayed)
+            print(f"[IBKR] Last Price {reqId}: ${price:.2f}")
+            self._bridge._emit_price(reqId, price)
+        elif tickType in [1, 66]:  # Bid
+            self._bridge._emit_bid(reqId, price)
+        elif tickType in [2, 67]:  # Ask
+            self._bridge._emit_ask(reqId, price)
+            
+    def tickSize(self, reqId, tickType, size):
+        """Called when size tick is received."""
+        pass
+        
+    def tickGeneric(self, reqId, tickType, value):
+        """Called for generic market data."""
+        pass
+        
+    def historicalData(self, reqId, bar):
+        """Called with historical bar data."""
+        self._bridge._emit_historical_bar(reqId, bar)
+        
+    def historicalDataEnd(self, reqId, start, end):
+        """Called when historical data is complete."""
+        print(f"[IBKR] Historical data complete for reqId={reqId}")
+        
+    def position(self, account, contract, pos, avgCost):
+        """Called with position data."""
+        position_data = {
+            "account": account,
+            "symbol": contract.symbol,
+            "secType": contract.secType,
+            "position": pos,
+            "avgCost": avgCost,
+        }
+        self._bridge._emit_position(position_data)
+        
+    def positionEnd(self):
+        """Called when position data is complete."""
+        print("[IBKR] Position data complete")
+        self._bridge._emit_position_end()
+        
+    def openOrder(self, orderId, contract, order, orderState):
+        """Called with open order data."""
+        order_data = {
+            "orderId": orderId,
+            "symbol": contract.symbol,
+            "secType": contract.secType,
+            "action": order.action,
+            "quantity": order.totalQuantity,
+            "orderType": order.orderType,
+            "status": orderState.status,
+        }
+        self._bridge._emit_order(order_data)
+        
+    def openOrderEnd(self):
+        """Called when open order data is complete."""
+        print("[IBKR] Open orders complete")
+        
+    def orderStatus(self, orderId, status, filled, remaining, avgFillPrice, 
+                    permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice):
+        """Called when order status changes."""
+        status_data = {
+            "orderId": orderId,
+            "status": status,
+            "filled": filled,
+            "remaining": remaining,
+            "avgFillPrice": avgFillPrice,
+        }
+        self._bridge._emit_order_status(status_data)
 
 
 class IBKRBridge(QObject):
@@ -76,11 +149,35 @@ class IBKRBridge(QObject):
     accounts_received = Signal(list)  # List of account IDs
     error_occurred = Signal(int, str)  # Error code, message
     
+    # Market data signals
+    price_received = Signal(int, float)  # reqId, last price
+    bid_received = Signal(int, float)    # reqId, bid price
+    ask_received = Signal(int, float)    # reqId, ask price
+    
+    # Historical data signals
+    historical_bar_received = Signal(int, object)  # reqId, bar data
+    
+    # Position signals
+    position_received = Signal(dict)  # Position data
+    positions_complete = Signal()     # All positions received
+    
+    # Order signals
+    order_received = Signal(dict)       # Order data
+    order_status_received = Signal(dict)  # Order status update
+    
     # Internal thread-safe signals
     _internal_connected = Signal()
     _internal_disconnected = Signal()
     _internal_accounts = Signal(list)
     _internal_error = Signal(int, str)
+    _internal_price = Signal(int, float)
+    _internal_bid = Signal(int, float)
+    _internal_ask = Signal(int, float)
+    _internal_historical_bar = Signal(int, object)
+    _internal_position = Signal(dict)
+    _internal_position_end = Signal()
+    _internal_order = Signal(dict)
+    _internal_order_status = Signal(dict)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -95,6 +192,14 @@ class IBKRBridge(QObject):
         self._internal_disconnected.connect(self._on_internal_disconnected, Qt.QueuedConnection)
         self._internal_accounts.connect(self._on_internal_accounts, Qt.QueuedConnection)
         self._internal_error.connect(self._on_internal_error, Qt.QueuedConnection)
+        self._internal_price.connect(self._on_internal_price, Qt.QueuedConnection)
+        self._internal_bid.connect(self._on_internal_bid, Qt.QueuedConnection)
+        self._internal_ask.connect(self._on_internal_ask, Qt.QueuedConnection)
+        self._internal_historical_bar.connect(self._on_internal_historical_bar, Qt.QueuedConnection)
+        self._internal_position.connect(self._on_internal_position, Qt.QueuedConnection)
+        self._internal_position_end.connect(self._on_internal_position_end, Qt.QueuedConnection)
+        self._internal_order.connect(self._on_internal_order, Qt.QueuedConnection)
+        self._internal_order_status.connect(self._on_internal_order_status, Qt.QueuedConnection)
         
         # Connect public signals for status updates
         self.connected.connect(self._on_connected)
@@ -113,6 +218,34 @@ class IBKRBridge(QObject):
     def _on_internal_error(self, code, msg):
         self.error_occurred.emit(code, msg)
         
+    def _on_internal_price(self, req_id, price):
+        print(f"[IBKR] Price {req_id}: ${price:.2f}")
+        self.price_received.emit(req_id, price)
+        
+    def _on_internal_bid(self, req_id, price):
+        self.bid_received.emit(req_id, price)
+        
+    def _on_internal_ask(self, req_id, price):
+        self.ask_received.emit(req_id, price)
+        
+    def _on_internal_historical_bar(self, req_id, bar):
+        self.historical_bar_received.emit(req_id, bar)
+        
+    def _on_internal_position(self, position):
+        print(f"[IBKR] Position: {position['symbol']} {position['position']} @ ${position['avgCost']:.2f}")
+        self.position_received.emit(position)
+        
+    def _on_internal_position_end(self):
+        self.positions_complete.emit()
+        
+    def _on_internal_order(self, order):
+        print(f"[IBKR] Order: {order['orderId']} {order['action']} {order['quantity']} {order['symbol']} - {order['status']}")
+        self.order_received.emit(order)
+        
+    def _on_internal_order_status(self, status):
+        print(f"[IBKR] Order Status: {status['orderId']} - {status['status']}")
+        self.order_status_received.emit(status)
+        
     # Thread-safe emit methods (called from background thread)
     def _emit_connected(self):
         self._internal_connected.emit()
@@ -125,6 +258,30 @@ class IBKRBridge(QObject):
         
     def _emit_error(self, code, msg):
         self._internal_error.emit(code, msg)
+        
+    def _emit_price(self, req_id, price):
+        self._internal_price.emit(req_id, price)
+        
+    def _emit_bid(self, req_id, price):
+        self._internal_bid.emit(req_id, price)
+        
+    def _emit_ask(self, req_id, price):
+        self._internal_ask.emit(req_id, price)
+        
+    def _emit_historical_bar(self, req_id, bar):
+        self._internal_historical_bar.emit(req_id, bar)
+        
+    def _emit_position(self, position):
+        self._internal_position.emit(position)
+        
+    def _emit_position_end(self):
+        self._internal_position_end.emit()
+        
+    def _emit_order(self, order):
+        self._internal_order.emit(order)
+        
+    def _emit_order_status(self, status):
+        self._internal_order_status.emit(status)
         
     def _on_connected(self):
         self.connection_status_changed.emit("connected")
@@ -252,5 +409,100 @@ class IBKRBridge(QObject):
             
         print("[IBKR] Requesting global cancel...")
         self._client.reqGlobalCancel()
-
+        
+    @Slot(str)
+    def subscribe_market_data(self, symbol: str, req_id: int = 1001) -> int:
+        """
+        Subscribe to market data for a symbol.
+        
+        Args:
+            symbol: Stock symbol (e.g., "SPY")
+            req_id: Request ID for tracking
+            
+        Returns:
+            Request ID
+        """
+        if not self._client or not self._client._connected:
+            print("[IBKR] Cannot subscribe - not connected")
+            return -1
+            
+        from ibapi.contract import Contract
+        
+        # Request delayed data (type 3) for paper trading without real-time subscription
+        # 1 = Live, 2 = Frozen, 3 = Delayed, 4 = Delayed Frozen
+        self._client.reqMarketDataType(3)
+        
+        contract = Contract()
+        contract.symbol = symbol
+        contract.secType = "STK"
+        contract.exchange = "SMART"
+        contract.currency = "USD"
+        
+        print(f"[IBKR] Subscribing to {symbol} (reqId={req_id}, delayed)")
+        self._client.reqMktData(req_id, contract, "", False, False, [])
+        return req_id
+        
+    @Slot(int)
+    def unsubscribe_market_data(self, req_id: int):
+        """
+        Unsubscribe from market data.
+        
+        Args:
+            req_id: Request ID from subscribe_market_data
+        """
+        if not self._client or not self._client._connected:
+            return
+            
+        print(f"[IBKR] Unsubscribing reqId={req_id}")
+        self._client.cancelMktData(req_id)
+        
+    @Slot(str, int)
+    def request_historical_data(self, symbol: str, req_id: int = 2001):
+        """
+        Request historical bar data for a symbol.
+        
+        Args:
+            symbol: Stock symbol
+            req_id: Request ID for tracking
+        """
+        if not self._client or not self._client._connected:
+            print("[IBKR] Cannot request historical data - not connected")
+            return
+            
+        from ibapi.contract import Contract
+        from datetime import datetime
+        
+        contract = Contract()
+        contract.symbol = symbol
+        contract.secType = "STK"
+        contract.exchange = "SMART"
+        contract.currency = "USD"
+        
+        # Request last 1 day of 5-minute bars
+        end_time = datetime.now().strftime("%Y%m%d %H:%M:%S")
+        
+        print(f"[IBKR] Requesting historical data for {symbol}")
+        self._client.reqHistoricalData(
+            req_id, contract, end_time, "1 D", "5 mins", "TRADES", 1, 1, False, []
+        )
+        
+    @Slot()
+    def request_positions(self):
+        """Request all positions from TWS."""
+        if not self._client or not self._client._connected:
+            print("[IBKR] Cannot request positions - not connected")
+            return
+            
+        print("[IBKR] Requesting positions...")
+        self._client.reqPositions()
+        
+    @Slot()
+    def request_open_orders(self):
+        """Request all open orders from TWS."""
+        if not self._client or not self._client._connected:
+            print("[IBKR] Cannot request orders - not connected")
+            return
+            
+        print("[IBKR] Requesting open orders...")
+        self._client.reqOpenOrders()
 

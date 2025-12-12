@@ -22,24 +22,24 @@ class PositionPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("positionPanel")
+        self._positions = {}  # symbol -> position data
         self._setup_ui()
-        self._setup_demo_data()
         
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
         
-        # Title
-        title = QLabel("Positions")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ddd;")
-        layout.addWidget(title)
+        # Title with count
+        self._title = QLabel("Positions (0)")
+        self._title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ddd;")
+        layout.addWidget(self._title)
         
         # Table
         self._table = QTableWidget()
-        self._table.setColumnCount(6)
+        self._table.setColumnCount(4)
         self._table.setHorizontalHeaderLabels([
-            "Symbol", "Qty", "Avg Price", "Current", "P&L", "P&L %"
+            "Symbol", "Qty", "Avg Cost", "Value"
         ])
         
         # Style
@@ -70,48 +70,45 @@ class PositionPanel(QWidget):
         
         layout.addWidget(self._table)
         
-    def _setup_demo_data(self):
-        """Add demo position data."""
-        positions = [
-            {"symbol": "SPY", "qty": 100, "avg": 450.50, "current": 455.25},
-            {"symbol": "QQQ", "qty": 50, "avg": 380.00, "current": 375.50},
-            {"symbol": "AAPL", "qty": 25, "avg": 175.00, "current": 180.00},
-        ]
-        self.update_positions(positions)
-        
-    @Slot(list)
-    def update_positions(self, positions: List[Dict]):
+    @Slot(dict)
+    def add_position(self, position: Dict):
         """
-        Update position table.
+        Add or update a position.
         
         Args:
-            positions: List of position dicts with symbol, qty, avg, current
+            position: Position dict with symbol, position, avgCost
         """
+        symbol = position["symbol"]
+        self._positions[symbol] = position
+        self._refresh_table()
+        
+    @Slot()
+    def clear_positions(self):
+        """Clear all positions."""
+        self._positions.clear()
+        self._refresh_table()
+        
+    def _refresh_table(self):
+        """Refresh the table from positions data."""
+        positions = [p for p in self._positions.values() if p["position"] != 0]
+        
+        self._title.setText(f"Positions ({len(positions)})")
         self._table.setRowCount(len(positions))
         
         for row, pos in enumerate(positions):
             symbol = pos["symbol"]
-            qty = pos["qty"]
-            avg = pos["avg"]
-            current = pos["current"]
-            pnl = (current - avg) * qty
-            pnl_pct = ((current - avg) / avg) * 100
+            qty = pos["position"]
+            avg_cost = pos["avgCost"]
+            value = abs(qty * avg_cost)
             
             self._table.setItem(row, 0, QTableWidgetItem(symbol))
-            self._table.setItem(row, 1, QTableWidgetItem(str(qty)))
-            self._table.setItem(row, 2, QTableWidgetItem(f"${avg:.2f}"))
-            self._table.setItem(row, 3, QTableWidgetItem(f"${current:.2f}"))
             
-            # P&L with color
-            pnl_item = QTableWidgetItem(f"${pnl:+,.2f}")
-            pnl_pct_item = QTableWidgetItem(f"{pnl_pct:+.2f}%")
-            
-            if pnl >= 0:
-                pnl_item.setForeground(QColor("#26a69a"))
-                pnl_pct_item.setForeground(QColor("#26a69a"))
+            qty_item = QTableWidgetItem(str(int(qty)))
+            if qty > 0:
+                qty_item.setForeground(QColor("#26a69a"))
             else:
-                pnl_item.setForeground(QColor("#ef5350"))
-                pnl_pct_item.setForeground(QColor("#ef5350"))
-                
-            self._table.setItem(row, 4, pnl_item)
-            self._table.setItem(row, 5, pnl_pct_item)
+                qty_item.setForeground(QColor("#ef5350"))
+            self._table.setItem(row, 1, qty_item)
+            
+            self._table.setItem(row, 2, QTableWidgetItem(f"${avg_cost:.2f}"))
+            self._table.setItem(row, 3, QTableWidgetItem(f"${value:,.2f}"))
