@@ -1,0 +1,16 @@
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    container_name: ib-gateway
+    ports:
+      - "4001:4001" # TWS API port
+      - "4002:4002" # IB Gateway API port  
+      - "5900:5900" # VNC port (optional, for debugging)
+    environment:
+      - TWS_USERID=${TWS_USERNAME}
+      - TWS_PASSWORD=${TWS_PASSWORD}
+      - TRADING_MODE=${TRADING_MODE:-paper}
+      - TWS_ACCEPT_INCOMING=accept
+      - READ_ONLY_API=${READ_ONLY_API:-no}
+      - VNC_SERVER_PASSWORD=${VNC_PASSWORD:-password}
+    restart: unless-stopped
