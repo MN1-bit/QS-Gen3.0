@@ -67,6 +67,23 @@ class DashboardInterface(QWidget):
         self._new_order_btn.clicked.connect(self._show_order_dialog)
         header.addWidget(self._new_order_btn)
         
+        # Exit button
+        self._exit_btn = QPushButton("Exit")
+        self._exit_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(239, 83, 80, 80);
+                color: #ef5350;
+                border: 1px solid rgba(239, 83, 80, 100);
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background: rgba(239, 83, 80, 150);
+            }
+        """)
+        header.addWidget(self._exit_btn)
+        
         layout.addLayout(header)
         
         # Main content area with splitters
@@ -236,6 +253,7 @@ class TradingMainWindow(FluentWindow):
         self.initWindow()
         self.initNavigation()
         self.initSystemTray()
+        self.initNotifications()
         
     def initWindow(self):
         self.resize(1300, 800)
@@ -354,14 +372,17 @@ class TradingMainWindow(FluentWindow):
         
         tray_menu.addSeparator()
         
-        # Exit action
+        # Exit action - use clean_exit
         exit_action = QAction("Exit", self)
-        exit_action.triggered.connect(QApplication.quit)
+        exit_action.triggered.connect(self.clean_exit)
         tray_menu.addAction(exit_action)
         
         self._tray_icon.setContextMenu(tray_menu)
         self._tray_icon.activated.connect(self._on_tray_activated)
         self._tray_icon.show()
+        
+        # Connect Dashboard Exit button
+        self.dashboardInterface._exit_btn.clicked.connect(self.clean_exit)
         
     def _show_from_tray(self):
         """Show window from tray."""
@@ -386,3 +407,88 @@ class TradingMainWindow(FluentWindow):
             event.ignore()
         else:
             event.accept()
+            
+    def initNotifications(self):
+        """Initialize desktop notifications for key events."""
+        # Connection notifications
+        self._bridge.connected.connect(self._notify_connected)
+        self._bridge.disconnected.connect(self._notify_disconnected)
+        
+        # Order fill notifications
+        self._bridge.order_status_received.connect(self._notify_order_status)
+        
+    def _notify_connected(self):
+        """Show notification when connected to TWS."""
+        self._tray_icon.showMessage(
+            "Connected",
+            "Successfully connected to TWS",
+            QSystemTrayIcon.Information,
+            3000
+        )
+        
+    def _notify_disconnected(self):
+        """Show notification when disconnected from TWS."""
+        self._tray_icon.showMessage(
+            "Disconnected",
+            "Connection to TWS lost",
+            QSystemTrayIcon.Warning,
+            5000
+        )
+        
+    def _notify_order_status(self, status: dict):
+        """Show notification for order status changes."""
+        order_id = status["orderId"]
+        order_status = status["status"]
+        filled = status.get("filled", 0)
+        
+        # Only notify for important status changes
+        if order_status == "Filled":
+            self._tray_icon.showMessage(
+                "Order Filled",
+                f"Order {order_id} filled ({filled} shares)",
+                QSystemTrayIcon.Information,
+                4000
+            )
+        elif order_status == "Cancelled":
+            self._tray_icon.showMessage(
+                "Order Cancelled",
+                f"Order {order_id} was cancelled",
+                QSystemTrayIcon.Information,
+                3000
+            )
+            
+    def clean_exit(self):
+        """
+        Clean exit process - disconnect all connections and kill all threads.
+        """
+        import os
+        import signal
+        
+        print("[App] Starting clean exit...")
+        
+        # 1. Hide tray icon
+        self._tray_icon.hide()
+        
+        # 2. Disconnect from TWS
+        if self._bridge.is_connected:
+            print("[App] Disconnecting from TWS...")
+            self._bridge.disconnect_from_tws()
+        
+        # 3. Wait a bit for threads to finish
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(500, self._force_exit)
+        
+    def _force_exit(self):
+        """Force exit after cleanup."""
+        import os
+        import sys
+        
+        print("[App] Forcing exit...")
+        
+        # Force quit the application
+        QApplication.quit()
+        
+        # If still alive, use os._exit to force kill
+        os._exit(0)
+
+
