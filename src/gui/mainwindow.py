@@ -19,6 +19,8 @@ from src.gui.widgets.log_viewer import LogViewer
 from src.gui.widgets.backtest_runner import BacktestRunner
 from src.gui.widgets.tearsheet_viewer import TearsheetViewer
 from src.core.ibkr_bridge import IBKRBridge
+from src.core.nautilus_bridge import NautilusBridge
+import os
 
 
 class DashboardInterface(QWidget):
@@ -247,8 +249,16 @@ class TradingMainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
         
-        # Initialize IBKR Bridge
-        self._bridge = IBKRBridge(self)
+        # Select bridge based on environment variable
+        # USE_NAUTILUS=1 for Nautilus+Docker, otherwise use direct ibapi
+        use_nautilus = os.environ.get("USE_NAUTILUS", "0") == "1"
+        
+        if use_nautilus:
+            print("[App] Using NautilusBridge (Docker IB Gateway)")
+            self._bridge = NautilusBridge(self)
+        else:
+            print("[App] Using IBKRBridge (direct ibapi)")
+            self._bridge = IBKRBridge(self)
         
         self.initWindow()
         self.initNavigation()
